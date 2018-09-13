@@ -51,6 +51,9 @@ class Chromatogram(object):
         
         self.flow = flow
         
+        #sampling data and analytical data
+        self.sampling_data = {}
+        
     def get_all_alignments(self):
         '''finds all possible alignments
         
@@ -287,10 +290,89 @@ class Chromatogram(object):
             ax.set_ylabel(signal)
             fig.tight_layout()
         print('skew: ', skew)
-        return HETP_1, HETP_2, HETP_4     
+        return HETP_1, HETP_2, HETP_4 
+    
+    def get_meta_data(self, fname = None):
+        '''Reads the data about sampling and loads'''
+        na_values = ['n.a.']
+        
+        if fname is not None:
+            try:
+                data_elu = pd.read_excel(fname, sheet_name = 'Eluates', header = 1, na_values = na_values, index_col = 2)
+                data_elu['sampleID'] = data_elu.index
+                self.sampling_data['Eluates'] = data_elu
+                data_load = pd.read_excel(fname, sheet_name = 'Loads', header = 1, na_values = na_values, index_col = 2)
+                data_load['sampleID'] = data_load.index
+                self.sampling_data['Loads'] = data_load
+                return True
+            except Exception as e:
+                print(e)
+                return False
+        else:
+            print('No filename')
+            return False
+            
+
+    def mark_sampled_fractions(self, ax, fname, cv = 1, offset = 0):
+        
+        #initial settings
+        myColors = ['green', 'red', 'blue', 'orange', 'grey']
+        i = 0 # color counter
+        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+        bbox={'facecolor':'white', 'alpha' :0.6, 'edgecolor':'none', 'boxstyle' :'round,pad=0.2'}
+        
+        if not self.get_meta_data(fname):
+            print('No data about sampling information!')
+            return
+        data_elu = self.sampling_data['Eluates']
+        data_loads = self.sampling_data['Loads']
+        eks, scout = self.get_run_ID()
+        mask = (data_elu.eks == eks) & (data_elu.scoutNum == int(scout))
+        current_run = data_elu[mask]
+        
+        #create for coloring
+        x_lim = list(ax.get_xlim())
+        if self.fractions.min() > x_lim[0]:
+            x_lim[0] = self.fractions.min()
+        if self.fractions.max() < x_lim[1]:
+            x_lim[1] = self.fractions.max()
+        x = np.linspace(x_lim[0], x_lim[1], 1000)
+
+        #x_positions of sample fractions and sample names
+        names_X_pos = []
+        sample_names = current_run.index
+        
+        fractions = self.fractions
+        for s_name in sample_names:
+
+            upper_label = current_run.loc[s_name].fracUpper
+            lower_label = current_run.loc[s_name].fracLower
+            
+            upper = fractions.index.get_loc(upper_label) + 1
+            lower = fractions.index.get_loc(lower_label)
+            
+            names_X_pos.append((fractions[upper]-fractions[lower])/2+ fractions[lower]-offset)
+            ax.fill_between(x, 0, 0.7, 
+                            where = ((fractions[lower]-offset)/cv < x) & \
+                                    (x < (fractions[upper]-offset)/cv), 
+                            facecolor=myColors[i], alpha=0.3, transform = trans)
+            
+            if i >= (len(myColors)-1):
+                i = 0
+            else:
+                i=i+1
+        
+        for x_pos, s_name in zip(names_X_pos, sample_names):
+            ax.text(x_pos / cv, 0.15, s_name,
+                    ha = 'center', rotation = 'vertical', fontsize = 12,
+                    transform=trans, zorder=5, bbox = bbox)
+
+
+
 
     
-    def plot_signals(self, signals = None, fig = None, lab = ''):
+    def plot_signals(self, signals = None, x_lim = None, fig = None, lab = '',
+                     mark_samples = False, fname = None):
         '''narise signale
         signal na drugem mestu da na desno os
         vsak signal ma svojo y skalo a vsi imajo isto x skalo'''
@@ -306,6 +388,8 @@ class Chromatogram(object):
         lns = []
         
         ax_0 = fig.add_subplot(111)
+        if x_lim is not None:
+            ax_0.set_xlim(x_lim)
         ax_current = ax_0
         wrong_flag = False
         
@@ -339,12 +423,17 @@ class Chromatogram(object):
             else:
                 wrong_flag= True
                 print(signal + ' is not in your data')
-        
+        if mark_samples:
+            print(fname)
+            self.mark_sampled_fractions(ax_0, fname)
         if wrong_flag:
             print('You can select only: {0}'.format(all_available_sig))
         ax_0.set_xlabel('Volume [{0}]'.format(self.units[0]))
+        ax_0.set_zorder(20) #20 upam da je dovolj visoka stevilka
+        ax_0.patch.set_alpha(0)
         labs = [l.get_label() for l in lns]
-        ax_0.legend(lns, labs, loc='upper center')
+        l = ax_0.legend(lns, labs, loc='upper center')
+        l.set_zorder(21)
         ax_0.set_title(self.name)
         return ax_0, fig
         
@@ -432,6 +521,8 @@ class ChromatogramsContainer(object):
     def load_chromatogram(self, fname):
         '''
         from Unicorn exported file
+        TODO:
+            check if chromatogram is already loaded!!!!
         '''
         
         error = None
@@ -577,29 +668,40 @@ class ChromatogramsContainer(object):
 
 
 if __name__ == '__main__':
-    
+    import os
     print('\n\n\n\n')
-    folder = '../../../01_Akta_files/'
+    folder = './tests/01_Akta_files/'
+    os.listdir(folder)
     c = ChromatogramsContainer()
-    ok, msg = c.load_chromatogram(folder + 'LAG525 AEC VCS MuLV Run1 001.csv')
+    ok, msg = c.load_chromatogram(folder + 'GNT904A1-D243-18-CEX 001.csv')
     print(msg)
-    ok, msg = c.load_chromatogram(folder + 'LAG525-D024-17-ALC 001.csv')
+    ok, msg = c.load_chromatogram(folder + 'GNT904A1-D242-18-CEX 001.csv')
     print(msg)
-    ok, msg = c.load_chromatogram(r'../../../01_Akta_Files/LAG525 AEC VCS MuLV Run2 001.csv')
+    ok, msg = c.load_chromatogram(folder + 'GNT904A1-D242-18-CEX 002.csv')
     print(msg)
-    ok, msg = c.load_chromatogram(folder + 'Testi/Test kolone LAG525(42) MabSelect Sure 001.csv')
+    ok, msg = c.load_chromatogram(folder + 'GNT904A1-D243-18-CEX 002.csv')
     print(len(c))
-    chrom = c[-1]
+    chrom = c[1]
     HETPs = chrom.HETP_calc('Cond', [0,20], 19.8, plot = False)
     text ='\nHETP_stat: {0:.3f}, HETP_Uni {1:.3f}, HETP_4: {2:.3f}'.format(*HETPs)
     print(text)
     #c.plot_signals(['UV 1_300', 'Cond'])
     limits = [0,20]
+    '''
+    for chrom in c:
+        signal = 'UV 1_280'
+        if 'D243' in chrom.name:
+            signal = 'UV 1_300'
+        chrom.plot_signals([signal, 'Cond'], x_lim = [100, 400],  
+                           fname = './tests/GNT904_data_akta_runs.xlsx', 
+                           mark_samples=True)
+    '''
     
+    ok, msg = c.load_chromatogram(folder + 'GNT904A1-D269-18-CEX 001.csv')
     
-    
-    
-    
+    c['GNT904A1-D269-18-CEX 001'].plot_signals(['UV 1_280', 'Cond'], x_lim = [100, 450],  
+                                                       fname = './tests/GNT904_data_akta_runs.xlsx', 
+                                                       mark_samples=True)
     
     
     

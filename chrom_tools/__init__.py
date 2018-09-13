@@ -6,3 +6,4 @@ Created on Sat Aug 25 07:46:27 2018
 """
 
 from .chromatograms_class import ChromatogramsContainer, Chromatogram
+from .analytical_data import AnalyticalData
