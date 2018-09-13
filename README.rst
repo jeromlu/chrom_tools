@@ -1,6 +1,23 @@
 Chrom_tools
 -----------
 
+Project to create tools that will help me quickly anlyse the chromatographic data. This includes the chromatograms (Akta, Tecan), analytical data of samples. Tools created consist of following classes and methods:
+
+- `class ChromatogramsContainer`, most important methods:
+	- `load_chromatogram`
+	- defined are convinient functions for quick chromatograms selection
+	
+- `class Chromatogram`, most important methods:
+	- defines many convinient functions for getting chromatogram slices or finding the data at specific locations
+	- `curve_stat_moments` - calculates curves statstical moments
+	- `HETP_calc` - calculates HETP of a curve_stat_moments`
+	- `asimetry` - calcualtes asimetry of a curve
+
+- `class AnalyticalData`
+
+#
+
+
 #Usage
 
 To plot chromatograms, simply do::
@@ -20,3 +37,11 @@ To plot analytical data:
     >>> ok, msg = c.load_chromatogram(folder + 'LAG525 AEC VCS MuLV Run1 001.csv')
     >>> chrom = c[-1]
     >>> HETPs = chrom.HETP_calc('Cond', [0,20], 19.8, plot = True)
+	
+	
+#Dependencies
+
+- numpy
+- pandas
+- matplotlib
+- pycorn
