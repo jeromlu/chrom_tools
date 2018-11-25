@@ -16,9 +16,12 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
 
+#my packages
+import chrom_tools
+
 CODEC = 'utf-16'
 
-def colorAtNumber(n):
+def color_at_number(n):
     return list(mpl.rcParams['axes.prop_cycle'])[n]['color']
 
 
@@ -55,15 +58,16 @@ class Chromatogram(object):
         self.sampling_data = {}
         
     def get_all_alignments(self):
-        '''finds all possible alignments
+        '''Concantinates all possible alignments, if present
+        merges injections, phases, and fractions.
         
-        merges injections, phases, and fractions
+        Returns: None or concatinated pd.DataFrame
         '''        
         #print(pd.concat([self.fractions, self.phases ,self.injection_marks]))
         if (self.fractions is None) and (self.phases is None) and (self.injection_marks is None):
             return None
         else:
-            return pd.concat([self.fractions, self.phases ,self.injection_marks])
+            return pd.concat([self.fractions, self.phases ,self.injection_marks], sort = True)
 
     
     def get_offset(self, name):
@@ -81,14 +85,28 @@ class Chromatogram(object):
         match = re.match('\w+-(\w+)-\w+-\w+\s+(\d\d\d)', self.name)
         return match.group(1), match.group(2)
     
-    def find_nearest_idx(self, array, value):
-        '''vrne indeks vrednosti v tabeli array, ki je najblizje isakni vrednosti (value)
-        Primer:
-        tab = np.arange(15)
-        find_nearest(tab, 6.6)
-        result = 7
+    @staticmethod
+    def find_nearest_idx(array, value):
+        '''Finds neareast index of value in array that is closest to the passed
+        
+        Parameters:
+        -----------
+        array : numpy.array
+            array of values
+        value : float
+            value to be searched for in passed array
+        
+        Returns:
+        --------
+        idx : index of the found value
+        
+        Usage:
+        ------
+        >>> tab = np.arange(15)
+        >>> find_nearest(tab, 6.6)
+        >>> result = 7
         '''
-        idx = (np.abs(array-value)).argmin()
+        idx = (np.abs(array - value)).argmin()
         return idx
     
     def nearest_at_vol(self, signal, value):
@@ -99,12 +117,12 @@ class Chromatogram(object):
         y = self.get_y_values(signal)
         return y[idx]
     
-    def get_x_values(self, signal):
+    def get_x_values(self, signal, offset = 0, cv = 1):
         '''returns x values of the signal (pd.Series)\n
         erases nan values
         '''
         prefix = 'vol'
-        return self.curves[prefix + signal].dropna()
+        return (self.curves[prefix + signal].dropna() - offset) / cv
     
     def get_y_values(self, signal):
         '''returns signal values (pd.Series)
@@ -293,27 +311,24 @@ class Chromatogram(object):
         return HETP_1, HETP_2, HETP_4 
     
     def get_meta_data(self, fname = None):
-        '''Reads the data about sampling and loads'''
-        na_values = ['n.a.']
-        
-        if fname is not None:
-            try:
-                data_elu = pd.read_excel(fname, sheet_name = 'Eluates', header = 1, na_values = na_values, index_col = 2)
-                data_elu['sampleID'] = data_elu.index
-                self.sampling_data['Eluates'] = data_elu
-                data_load = pd.read_excel(fname, sheet_name = 'Loads', header = 1, na_values = na_values, index_col = 2)
-                data_load['sampleID'] = data_load.index
-                self.sampling_data['Loads'] = data_load
-                return True
-            except Exception as e:
-                print(e)
-                return False
+        '''Reads the data about sampling and loads
+        do this with analytical data class
+        Parameters
+        ----------
+        fname : str or None
+            file where analytical data are saved
+        Returns
+        -------
+        None
+        '''
+        if fname:
+            flag = self.sampling_data = chrom_tools.AnalyticalData(fname)
+            return flag
         else:
-            print('No filename')
             return False
-            
 
-    def mark_sampled_fractions(self, ax, fname, cv = 1, offset = 0):
+
+    def mark_sampled_fractions(self, ax, fname, offset = 0, cv = 1, sample_ID = None):
         
         #initial settings
         myColors = ['green', 'red', 'blue', 'orange', 'grey']
@@ -324,18 +339,21 @@ class Chromatogram(object):
         if not self.get_meta_data(fname):
             print('No data about sampling information!')
             return
-        data_elu = self.sampling_data['Eluates']
-        data_loads = self.sampling_data['Loads']
+        data_elu = self.sampling_data.eluates
+        data_loads = self.sampling_data.loads
         eks, scout = self.get_run_ID()
         mask = (data_elu.eks == eks) & (data_elu.scoutNum == int(scout))
         current_run = data_elu[mask]
         
         #create for coloring
         x_lim = list(ax.get_xlim())
-        if self.fractions.min() > x_lim[0]:
-            x_lim[0] = self.fractions.min()
-        if self.fractions.max() < x_lim[1]:
-            x_lim[1] = self.fractions.max()
+        fr_min = (self.fractions.min() - offset) / cv
+        fr_max = (self.fractions.max() - offset) / cv
+        
+        if fr_min > x_lim[0]:
+            x_lim[0] = fr_min
+        if fr_max < x_lim[1]:
+            x_lim[1] = fr_max
         x = np.linspace(x_lim[0], x_lim[1], 1000)
 
         #x_positions of sample fractions and sample names
@@ -344,17 +362,31 @@ class Chromatogram(object):
         
         fractions = self.fractions
         for s_name in sample_names:
-
+            
+            #if called with sample_ID paramater it marks only that sample
+            if sample_ID and (s_name != sample_ID):
+                print(sample_ID)
+                continue
             upper_label = current_run.loc[s_name].fracUpper
             lower_label = current_run.loc[s_name].fracLower
+            
+            if (upper_label) is None or (lower_label is None):
+                err_txt = 'For sample {0} there is no upper or lower limit!'
+                print(err_txt.format(s_name))
+                return
+            if (upper_label not in fractions.index) or (lower_label not in fractions.index):
+                err_txt = 'For sample {0} there is no upper or lower limit!'
+                print(err_txt.format(s_name))
+                print('Possible fractions are: ', fractions.index)
+                return                
             
             upper = fractions.index.get_loc(upper_label) + 1
             lower = fractions.index.get_loc(lower_label)
             
             names_X_pos.append((fractions[upper]-fractions[lower])/2+ fractions[lower]-offset)
             ax.fill_between(x, 0, 0.7, 
-                            where = ((fractions[lower]-offset)/cv < x) & \
-                                    (x < (fractions[upper]-offset)/cv), 
+                            where = ((fractions[lower]- offset)/cv < x) & \
+                                    (x < (fractions[upper]- offset)/cv), 
                             facecolor=myColors[i], alpha=0.3, transform = trans)
             
             if i >= (len(myColors)-1):
@@ -367,12 +399,44 @@ class Chromatogram(object):
                     ha = 'center', rotation = 'vertical', fontsize = 12,
                     transform=trans, zorder=5, bbox = bbox)
 
-
-
+    def add_curve_to_axis(self, ax_0, signal, lab, cv = 1, offset = 0, 
+                          twinx = False,  **kwargs):
+        '''
+        Adds curve to passed axis (matplotlib)
+        Parameters
+        ----------
+        ax_0 : mpl.axes
+        curve : list
+            list of x, y values of the curve
+        twinx : bool, default False
+            if True new axes is created and returned
+        cv : float
+            column volume to normalize independant data (volume)
+        offset : float
+            translation of the curve
+        **kwargs : plt.plot keyword options
+            
+        Returns
+        -------
+        line object and mpl.axes
+        '''
+        #set x and y data       
+        x = self.get_x_values(signal, offset, cv)
+        y = self.get_y_values(signal)
+        
+        if twinx:
+            ax = ax_0.twinx()
+        else:
+            ax = ax_0
+        
+        ln, = ax.plot(x, y, label = signal + '_' + lab, 
+                                     linewidth = 3, **kwargs)
+        return ln, ax
 
     
     def plot_signals(self, signals = None, x_lim = None, fig = None, lab = '',
-                     mark_samples = False, fname = None):
+                     mark_samples = False, sample_ID = None, fname = None, 
+                     align_to = None, cv = 1):
         '''narise signale
         signal na drugem mestu da na desno os
         vsak signal ma svojo y skalo a vsi imajo isto x skalo'''
@@ -393,20 +457,31 @@ class Chromatogram(object):
         ax_current = ax_0
         wrong_flag = False
         
+        if isinstance(align_to, str):
+            if align_to in self.all_alignments.index:
+                offset = self.all_alignments[align_to]
+            else:
+                offset = 0          
+                print('You can only align to following:')
+                print(self.all_alignments.index)
+        elif isinstance(align_to, (int, float)):
+            offset = align_to
+        else:
+            offset = 0
+        
         
         for i, signal in enumerate(signals):
             
             if signal in self.curves.columns:
                 if i > 0:
                     ax_current = ax_0.twinx()
-                #set x and y data       
-                x = self.curves['vol' + signal].dropna().values
-                y = self.curves[signal].dropna().values
+
                 
                 #plot data on last axes
-                current_color = colorAtNumber(i)
-                ln = ax_current.plot(x, y, label = signal + '_' + lab, 
-                                     linewidth = 3, color = current_color)
+                current_color = color_at_number(i)
+                ln = self.add_curve_to_axis(ax_current, signal, lab, 
+                                            color = current_color, offset = offset,
+                                            cv = cv)
                 lns.append(ln[0])
                 
                 if i == 0:
@@ -425,7 +500,7 @@ class Chromatogram(object):
                 print(signal + ' is not in your data')
         if mark_samples:
             print(fname)
-            self.mark_sampled_fractions(ax_0, fname)
+            self.mark_sampled_fractions(ax_0, fname, offset, cv, sample_ID)
         if wrong_flag:
             print('You can select only: {0}'.format(all_available_sig))
         ax_0.set_xlabel('Volume [{0}]'.format(self.units[0]))
@@ -443,7 +518,15 @@ class Chromatogram(object):
         
         
 class ChromatogramsContainer(object):
-    '''class to hold chromatogram objects defined above'''
+    '''Class to hold chromatogram objects defined above.
+    
+    Most important method would be load_chromatogram, which loads additional chromatogram.
+    
+    It also defines method for convinient chromatogram selecting(by name or index).
+    
+    TODO: create chromatogram from simulated data.
+    TODO: compare chromatograms.
+    '''
     
     def __init__(self):
         self.__fname = ""
@@ -474,8 +557,16 @@ class ChromatogramsContainer(object):
             return self.__chromatograms[k][1]
         else:
             return self.__chromatograms[k]        
-                
-            
+    
+    def __contains__(self, name):
+        '''
+        Checks if chromatogram is already in the chromatograms container.
+        '''
+        if name in self.get_chrom_names():
+            return True
+        else:
+            return False
+        
     def get_chrom_names(self):
         '''Return list of chrom names'''
         return [el[0] for el in self.__chromatograms]
@@ -520,17 +611,32 @@ class ChromatogramsContainer(object):
     
     def load_chromatogram(self, fname):
         '''
-        from Unicorn exported file
-        TODO:
-            check if chromatogram is already loaded!!!!
+        from Unicorn exported csv file, load the data
+        
+        Parameters
+        ----------
+        fname : str
+            name of the file. It has to be full path with file extension at the end 
+            or it can be relative path with file extansion at the end.
+            
+        Returns
+        -------
+        succes : bool
+            True if succesfuly loaded
+            False if there were some problems, or file was already loaded
+        msg : str
+            descriptive message about the problem or succes
         '''
         
         error = None
         try:
             name = ntpath.basename(fname).split('.')[0]
+            if name in self:
+                msg = 'Chromatogram {0} already loaded.'.format(name)
+                raise ValueError(msg)
             #read in the exported ascii, csv
             temp_df = pd.read_table(fname, skiprows=[0], low_memory=False,
-             sep='\t',encoding= CODEC)
+             sep='\t', encoding= CODEC)
         
             #rename the column names (glupa struktura exporta je)
             #prefix = 'vol'
@@ -554,16 +660,19 @@ class ChromatogramsContainer(object):
             if 'Injection' in col:
                 temp_df, injections = self.get_injections(temp_df)
                 
-            
             phases = None
             #check if there are phases defined (only in Unicorn 7...)
             if 'Run Log' in col:
                 temp_df, phases = self.get_phases(temp_df)
             
+            
+            #convert to floating point numbers
             curves = temp_df.astype(np.float64)
             
+            #get metadata, this should be changed
             chrom_metadata = self.get_chrom_metadata(fname)
             
+            #instantiate the Chromatogram object with all parameters set
             loaded_chrom = Chromatogram(name, units, curves, chrom_metadata,
                                         fractions, phases, injections)
             
@@ -657,9 +766,72 @@ class ChromatogramsContainer(object):
         return list(idx)
         
         
-    def load_multiple_chrom(self):
-        '''Loads all chromatograms from a folder'''
-        pass
+    def load_multiple_chroms(self, folder):
+        '''
+        Loads all chromatograms from a folder
+        Parameters
+        ----------
+        folder : string
+            path to the folder where Akta files should be
+        Returns
+        -------
+        '''
+        #all names in given folder
+        names = os.listdir(folder)
+        
+        csv_files = [el for el in names if 
+                     os.path.isfile(os.path.join(folder, el)) and
+                     (os.path.splitext(el)[-1] == '.csv')]
+        
+        if len(csv_files) == 0:
+            print('No csv files to load.')
+        
+        for name in csv_files:
+            match = re.match('\w+-(\w+)-\w+-\w+\s+(\d\d\d).csv', name)
+            if match:
+                fname = os.path.join(folder, name)
+                self.load_chromatogram(folder + fname)
+                
+    def compare_chroms(self, chrom_lst, signal, align_to = None, cv = False):
+        '''
+        Compare one signal of different chromatograms.
+        
+        Parameters
+        ----------
+        chrom_lst : list
+            :list of integers or list of chrom names
+        signal : str
+            name of a signal, it should be present in at least one of the
+            chromatograms
+            
+        Returns
+        -------
+        Axes of the comparison plot.
+        mpl.axes
+        '''
+        
+        if (type(chrom_lst) != list) and (not chrom_lst):
+            msg = 'First argument should be list with chrom names.'
+            print(msg)
+            return None
+        
+        fig, ax_0 = plt.subplots(figsize = (10, 7))
+        lns = []
+        for name in chrom_lst:
+            chrom = self[name]
+            if signal in chrom.curves.columns:
+                #offset, cv = chrom.get_offset(aign_to, ) 
+                ln = chrom.add_curve_to_axis(ax_0, signal, lab = chrom.name, offset = 0, cv =1)
+                lns.append(ln[0])
+            else:
+                print('Signal {0} not in the file {1}'.format(signal, chrom.name))
+            
+        labs = [l.get_label() for l in lns]
+        l = ax_0.legend(lns, labs, loc = 'upper center')
+        l.set_zorder(21)
+            
+            
+        
 
     @staticmethod
     def formats():
@@ -675,6 +847,8 @@ if __name__ == '__main__':
     c = ChromatogramsContainer()
     ok, msg = c.load_chromatogram(folder + 'GNT904A1-D243-18-CEX 001.csv')
     print(msg)
+    ok, msg = c.load_chromatogram(folder + 'GNT904A1-D243-18-CEX 001.csv')
+    print(msg)
     ok, msg = c.load_chromatogram(folder + 'GNT904A1-D242-18-CEX 001.csv')
     print(msg)
     ok, msg = c.load_chromatogram(folder + 'GNT904A1-D242-18-CEX 002.csv')
@@ -682,9 +856,9 @@ if __name__ == '__main__':
     ok, msg = c.load_chromatogram(folder + 'GNT904A1-D243-18-CEX 002.csv')
     print(len(c))
     chrom = c[1]
-    HETPs = chrom.HETP_calc('Cond', [0,20], 19.8, plot = False)
-    text ='\nHETP_stat: {0:.3f}, HETP_Uni {1:.3f}, HETP_4: {2:.3f}'.format(*HETPs)
-    print(text)
+    #HETPs = chrom.HETP_calc('Cond', [0,20], 19.8, plot = False)
+    #text ='\nHETP_stat: {0:.3f}, HETP_Uni {1:.3f}, HETP_4: {2:.3f}'.format(*HETPs)
+    #print(text)
     #c.plot_signals(['UV 1_300', 'Cond'])
     limits = [0,20]
     '''
@@ -699,10 +873,15 @@ if __name__ == '__main__':
     
     ok, msg = c.load_chromatogram(folder + 'GNT904A1-D269-18-CEX 001.csv')
     
-    c['GNT904A1-D269-18-CEX 001'].plot_signals(['UV 1_280', 'Cond'], x_lim = [100, 450],  
-                                                       fname = './tests/GNT904_data_akta_runs.xlsx', 
-                                                       mark_samples=True)
+    anal_fname = 'C:\\Users\\jeromlu2\\LukaFiles\\04_Programiranje\\01_Python\\03_IPythonNotebooks\\temp\\IPI\\03_DSP Development\\04_DSPD\\01_Akta_runs\\'
+    chrom_2 = c['GNT904A1-D269-18-CEX 001']
+    chrom_2.plot_signals(['UV 1_280', 'Cond'], x_lim = [0, 250],  
+                                                       fname = anal_fname + 'GNT904_data_akta_runs.xlsx', 
+                                                       mark_samples = True,
+                                                       align_to = 'Elution')
+    #c.load_multiple_chroms(folder)
     
+    #c.compare_chroms([0,1,2, 3], 'UV 1_280')
     
     
     

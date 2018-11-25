@@ -15,10 +15,10 @@ y|
 """
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from pyEnergyDiagram.box_notation import plot_orbital_boxes
+from chrom_tools.pyEnergyDiagram.box_notation import plot_orbital_boxes
 #from box_notation import plot_orbital_boxes
 
-class ED:
+class ED(object):
     def __init__(self,aspect='equal'):
         #plot parameters
         self.ratio = 1.6181
@@ -65,8 +65,6 @@ class ED:
          top_text  : str 
                  Text on the top of the level. By default it will print the 
                  energy of the level. (default  'Energy')
-
-                 
         
         Returns
         -------
@@ -156,7 +154,8 @@ class ED:
         self.electons_boxes.append((x,y,boxes,electrons,side,spacing_f))
         
      
-    def plot(self,show_IDs=False, y_label = "Energy / $kcal$ $mol^{-1}$"):
+    def plot(self, show_IDs=False, y_label = "Energy / $kcal$ $mol^{-1}$", fs = 16, 
+             **kwargs):
         '''
         Method of ED class
         Plot the energy diagram. Use show_IDs=True for showing the IDs of the
@@ -171,15 +170,24 @@ class ED:
         Parameters
         ----------
         show_IDs : bool 
-            show the IDs of the energy levels 
+            show the IDs of the energy levels
+        y_label : str
+            dependent variable name
+        fs : int
+            fontsize of the sample_ID and value label
+        step_names : list
+            names of steps to show on the graph
+        kwargs: dictionary
+            key word arguments to pass to the plt.figure method
+            
         
         Returns
         -------
         fig (plt.figure) and ax (fig.add_subplot()) 
 
         '''
-        fig = plt.figure()
-        ax = fig.add_subplot(111,aspect=self.aspect)
+        fig = plt.figure(**kwargs)
+        ax = fig.add_subplot(111, aspect=self.aspect)
         ax.set_ylabel(y_label)
         ax.axes.get_xaxis().set_visible(False)
         ax.spines['top'].set_visible(False)
@@ -200,20 +208,21 @@ class ED:
             start = level[1]*(self.dimension+self.space)
             ax.hlines(level[0],start,start+self.dimension, color = level[4])
             ax.text(start+self.dimension/2., #X
-                    level[0]+self.offset,  #Y
+                    level[0] + self.offset,  #Y
                     level[3], # self.top_texts 
                     horizontalalignment='center',
-                    verticalalignment='bottom')
+                    verticalalignment='bottom',
+                    fontsize = fs)
             ax.text(start+self.dimension/2., # X
-                    level[0]-self.offset*2, # Y
+                    level[0] - self.offset, # Y
                     level[2], # self.bottom_text
                     horizontalalignment='center',
                     verticalalignment='top',
-                    color= self.color_bottom_text)
+                    color= self.color_bottom_text,
+                    fontsize = fs)
         if show_IDs:
             #for showing the ID allowing the user to identify the level
             for ind, level in enumerate(data):
-                print(ind)
                 start = level[1]*(self.dimension+self.space)
                 ax.text(start, level[0]+self.offset, str(ind),
                         horizontalalignment='right',color='red')
@@ -228,13 +237,13 @@ class ED:
                 y1 = self.energies[idx]
                 y2 = self.energies[i]
                 gap = y1 - y2
-                gapnew = '{0:.2f}'.format(gap) 
+                gapnew = '{0:.2g}'.format(-gap) 
                 middle= y1-0.5*gap          #warning: this way works for negative HOMO/LUMO energies
                 ax.annotate("", xy=(x1,y1), xytext=(x2,middle),
                             arrowprops=dict(color='green', width=1.5, headwidth=5))
                 
                 ax.annotate(s= gapnew, xy=(x2, y2), xytext=(x1, middle), color='green',
-                            arrowprops=dict(width=1.5, headwidth=5, color='green'),
+                            arrowprops=dict(width=1.5, headwidth=7, color='green'),
                         bbox=dict(boxstyle='round', fc='white'),
                         ha='center', va = 'center')
         

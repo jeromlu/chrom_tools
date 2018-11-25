@@ -1,0 +1,56 @@
+Metadata-Version: 1.0
+Name: chrom-tools
+Version: 0.1
+Summary: Some classes and functions for chromatography simulatons
+Home-page: no current URL
+Author: Lux
+Author-email: luka.jeromel1@gmail.com
+License: open license
+Description: Chrom_tools
+        -----------
+        
+        Project to create tools that will help me quickly anlyse the chromatographic data. This includes the chromatograms (Akta, Tecan), analytical data of samples. Tools created consist of following classes and methods:
+        
+        - `class ChromatogramsContainer`, most important methods:
+        	- `load_chromatogram`
+        	- defined are convinient functions for quick chromatograms selection
+        	
+        - `class Chromatogram`, most important methods:
+        	- defines many convinient functions for getting chromatogram slices or finding the data at specific locations
+        	- `curve_stat_moments` - calculates curves statstical moments
+        	- `HETP_calc` - calculates HETP of a curve_stat_moments`
+        	- `asimetry` - calcualtes asimetry of a curve
+        
+        - `class AnalyticalData`
+        
+        #
+        
+        
+        #Usage
+        
+        To plot chromatograms, simply do::
+        
+            >>> import chrom_tools
+            >>> c = chrom_tools.ChromatogramsContainer()
+            >>> ok, msg = c.load_chromatogram(folder + 'LAG525 AEC VCS MuLV Run1 001.csv')
+            >>> chrom = c[-1]
+            >>> HETPs = chrom.HETP_calc('Cond', [0,20], 19.8, plot = True)
+        	
+        To plot analytical data:
+        
+        - plot eluates and load of the selected runs:
+        
+            >>> import chrom_tools
+            >>> c = chrom_tools.ChromatogramsContainer()
+            >>> ok, msg = c.load_chromatogram(folder + 'LAG525 AEC VCS MuLV Run1 001.csv')
+            >>> chrom = c[-1]
+            >>> HETPs = chrom.HETP_calc('Cond', [0,20], 19.8, plot = True)
+        	
+        	
+        #Dependencies
+        
+        - numpy
+        - pandas
+        - matplotlib
+        - pycorn
+Platform: UNKNOWN
